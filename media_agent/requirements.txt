@@ -1,0 +1,8 @@
+requests
+Pillow
+ddgs
+webvtt-py
+openai-whisper
+torch
+selenium
+undetected-chromedriver

@@ -1,0 +1,4 @@
+remote_node/.env
+remote_node/list_cache.json
+remote_node/stills_trigger_log.txt
+remote_node/ffmpeg_log.txt
