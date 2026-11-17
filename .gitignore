@@ -1,26 +1,31 @@
-# Secrets & local config
+# Secrets
 .env
 *.env
+media_agent/.env
+remote_node/.env
 
-# Runtime state & logs
+# Local state, database, and progress
+media.db
+IPdata/
 media_agent/state.json
 media_agent/state.tmp
 media_agent/MANUAL_REVIEW_NEEDED.txt
-media_agent/logs/
-quality_report.csv
 
-# Python cache
+# Logs
+media_agent/logs/
+poster_logs/
+*.log
+*.txt
+!requirements.txt
+!media/background/.gitkeep
+
+# Python cache & venv
 __pycache__/
 *.py[cod]
 venv/
 .venv/
 
-# Web runtime data & personal media assets
-IPdata/
-visit-count.txt
-device-list.txt
-unique-count.txt
-external_ip.txt
+# Large local media
 media/*.mp4
 media/background/*
 !media/background/.gitkeep

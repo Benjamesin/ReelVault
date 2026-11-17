@@ -96,7 +96,7 @@ def convert_downloaded_media(item_id: str) -> Dict[str, Any]:
     if not src.exists():
         return {"ok": False, "error": f"File not found: {src}"}
 
-    rel = src.parent.relative_to(config.DOWNLOADS_DIR)
+    rel = src.parent.resolve().relative_to(config.DOWNLOADS_DIR.resolve())
     out_dir = config.CONVERTED_DIR / rel
     out_dir.mkdir(parents=True, exist_ok=True)
 
