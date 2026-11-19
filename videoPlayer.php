@@ -733,9 +733,11 @@ if (!$is_remote_video) {
             playBtnIcon.className = "fa fa-play";
         });
 
-        fetch(lowSource, { method: 'HEAD' }).then(res => {
-            if (res.ok) has720p = true;
-        }).catch(() => {});
+    if (lowSource && lowSource !== highSource) {
+            fetch(lowSource, { method: 'HEAD' }).then(res => {
+                if (res.ok) has720p = true;
+            }).catch(() => {});
+        }
 
         document.getElementById('btn-play').focus();
         loadProgress();
@@ -977,31 +979,69 @@ if (!$is_remote_video) {
         }
     });
 
+const AUTO_STALL_WINDOW_MS = 30000; // 2 stalls within 30s -> drop to 720p
+    const SINGLE_STALL_MS      = 4000;  // 1 continuous 4s stall -> drop to 720p
+    let stallTimestamps = [];
+    let singleStallTimer = null;
+
+    function dropTo720p() {
+        clearTimeout(singleStallTimer);
+        if (!autoModeActive || !has720p || currentQuality !== "high" || userInteractionCooldown) return;
+        if (Date.now() - lastSwitchTime < AUTO_SWITCH_COOLDOWN) return;
+
+        console.log("[Auto-Quality] Buffering threshold hit -> dropping to 720p");
+        stallTimestamps = [];
+        currentQuality = "low";
+        qualityBtn.innerText = "Auto (720p)";
+        qualityBtn.style.color = "#ffaa00";
+        switchSource(lowSource, video.currentTime, !video.paused);
+    }
+
     video.addEventListener('waiting', () => {
-        if (!autoModeActive || !has720p || userInteractionCooldown) return;
-        bufferingEvents++;
+        if (video.paused || video.ended || !autoModeActive || !has720p || currentQuality !== "high" || userInteractionCooldown) return;
+
         const now = Date.now();
-        if (bufferingEvents >= AUTO_BUFFERING_LIMIT && currentQuality === "high" && now - lastSwitchTime > AUTO_SWITCH_COOLDOWN) {
-            switchSource(lowSource, video.currentTime, !video.paused);
-            currentQuality = "low";
-            bufferingEvents = 0;
+        stallTimestamps.push(now);
+        stallTimestamps = stallTimestamps.filter(t => now - t <= AUTO_STALL_WINDOW_MS);
+
+        if (stallTimestamps.length >= AUTO_BUFFERING_LIMIT) {
+            dropTo720p();
+            return;
         }
+
+        clearTimeout(singleStallTimer);
+        singleStallTimer = setTimeout(() => {
+            if (!video.paused && video.readyState < 3) {
+                dropTo720p();
+            }
+        }, SINGLE_STALL_MS);
     });
 
-    video.addEventListener('seeking', () => { markUserInteraction(); });
+    video.addEventListener('seeking', () => {
+        clearTimeout(singleStallTimer);
+        markUserInteraction();
+    });
+
+    video.addEventListener('pause', () => {
+        clearTimeout(singleStallTimer);
+    });
 
     video.addEventListener('playing', () => {
-        bufferingEvents = 0;
+        clearTimeout(singleStallTimer);
+
         if (!autoModeActive || currentQuality !== "low" || userInteractionCooldown) return;
         if (autoStableTimer) clearTimeout(autoStableTimer);
 
         autoStableTimer = setTimeout(() => {
             const bufferAhead = getBufferAhead();
-            if (bufferAhead >= AUTO_BUFFER_THRESHOLD && Date.now() - lastSwitchTime > AUTO_SWITCH_COOLDOWN) {
-                switchSource(highSource, video.currentTime, !video.paused);
+            if (bufferAhead >= 12 && Date.now() - lastSwitchTime > AUTO_SWITCH_COOLDOWN) {
+                console.log("[Auto-Quality] Connection stable -> upgrading back to High");
                 currentQuality = "high";
+                qualityBtn.innerText = "Auto";
+                qualityBtn.style.color = "white";
+                switchSource(highSource, video.currentTime, !video.paused);
             }
-        }, AUTO_STABLE_TIME);
+        }, 30000);
     });
 
     function togglePlay() {
@@ -1248,17 +1288,35 @@ if (!$is_remote_video) {
 
     function switchSource(src, resumeTime, shouldPlay) {
         if (!src) return;
+
         lastSwitchTime = Date.now();
+        clearTimeout(singleStallTimer);
+
         video.src = src;
-        video.currentTime = resumeTime;
-        video.addEventListener('loadedmetadata', reApplyTotalSync, { once: true });
-        if (shouldPlay) video.play();
+        video.load();
+
+        video.addEventListener('loadedmetadata', () => {
+            if (resumeTime > 0 && isFinite(video.duration)) {
+                video.currentTime = Math.min(resumeTime, Math.max(0, video.duration - 1));
+            }
+            if (video.textTracks && video.textTracks.length > 0) {
+                video.textTracks[0].mode = 'showing';
+            }
+            reApplyTotalSync();
+            if (shouldPlay) {
+                video.play().catch(() => {});
+            }
+        }, { once: true });
     }
 
     function getBufferAhead() {
-        if (video.buffered.length === 0) return 0;
-        const end = video.buffered.end(video.buffered.length - 1);
-        return end - video.currentTime;
+        const cur = video.currentTime;
+        for (let i = 0; i < video.buffered.length; i++) {
+            if (cur >= video.buffered.start(i) && cur <= video.buffered.end(i)) {
+                return video.buffered.end(i) - cur;
+            }
+        }
+        return 0;
     }
 
     function loadProgress() {
